@@ -5,7 +5,7 @@ import json
 import telebot
 from telebot import types
 
-TOKEN = "9249303434:AAF3Afl8_O5TH_lVNezCQsGX4iMgpXeC8oI"
+TOKEN = "9264462815:AAGEuwfs4x_MZdv5rwRfM9Pi71Z0-DYKEMw"
 ADMIN_ID = 9118052534
 UPI_ID = "8016922924@ibl"
 PAYMENT_CHANNEL_ID = "https://t.me/aaaalds_rd"
