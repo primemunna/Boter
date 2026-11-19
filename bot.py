@@ -1,21 +1,22 @@
 import os
 import sqlite3
 import time
-from datetime import datetime, timedelta
+import json
 import telebot
 from telebot import types
 
 TOKEN = "9249303434:AAF3Afl8_O5TH_lVNezCQsGX4iMgpXeC8oI"
 ADMIN_ID = 9118052534
+UPI_ID = "8016922924@ibl"
+PAYMENT_CHANNEL_ID = "https://t.me/aaaalds_rd"
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# --- DATABASE SETUP ---
+# --- DATABASE & JSON SETUP ---
 def init_db():
     conn = sqlite3.connect("bot_database.db", check_same_thread=False)
     cursor = conn.cursor()
     
-    # Users table
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (
                         user_id INTEGER PRIMARY KEY, 
                         username TEXT, 
@@ -24,48 +25,60 @@ def init_db():
                         coin_balance INTEGER DEFAULT 0,
                         raffles_count INTEGER DEFAULT 0)''')
     
-    # Channels table
     cursor.execute('''CREATE TABLE IF NOT EXISTS channels (id INTEGER PRIMARY KEY AUTOINCREMENT, link TEXT)''')
-    
-    # Admins table
     cursor.execute('''CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)''')
-    
-    # Products table
     cursor.execute('''CREATE TABLE IF NOT EXISTS products (
                         id INTEGER PRIMARY KEY AUTOINCREMENT, 
                         type TEXT, title TEXT, description TEXT, 
                         image TEXT, file TEXT, tutorial TEXT, price REAL)''')
-    
-    # Purchases table
     cursor.execute('''CREATE TABLE IF NOT EXISTS purchases (
                         id INTEGER PRIMARY KEY AUTOINCREMENT, 
                         user_id INTEGER, product_id INTEGER, type TEXT)''')
-    
-    # Raffles table
     cursor.execute('''CREATE TABLE IF NOT EXISTS raffles (
                         id INTEGER PRIMARY KEY AUTOINCREMENT, 
                         user_id INTEGER, link TEXT, username TEXT, name TEXT)''')
-    
-    # Payments table
     cursor.execute('''CREATE TABLE IF NOT EXISTS payments (
                         id INTEGER PRIMARY KEY AUTOINCREMENT, 
                         user_id INTEGER, amount REAL, image TEXT, 
                         status TEXT, timestamp REAL)''')
-    
-    # Promo Codes table
     cursor.execute('''CREATE TABLE IF NOT EXISTS codes (
                         code TEXT PRIMARY KEY, type TEXT, amount INTEGER, limit_count INTEGER, used_count INTEGER DEFAULT 0)''')
     
     cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (ADMIN_ID,))
     conn.commit()
     conn.close()
+    update_users_json()
+
+def init_runtime_files():
+    if not os.path.exists("runtime.txt"):
+        with open("runtime.txt", "w") as f:
+            f.write("python-3.11.9")
 
 init_db()
+init_runtime_files()
 
-# --- HELPER FUNCTIONS ---
 def get_db():
     conn = sqlite3.connect("bot_database.db", check_same_thread=False)
     return conn, conn.cursor()
+
+def update_users_json():
+    conn, cursor = get_db()
+    cursor.execute("SELECT user_id, username, name, rs_balance, coin_balance, raffles_count FROM users")
+    users = cursor.fetchall()
+    conn.close()
+    
+    users_list = []
+    for u in users:
+        users_list.append({
+            "user_id": u[0],
+            "username": u[1],
+            "name": u[2],
+            "rs_balance": u[3],
+            "coin_balance": u[4],
+            "raffles_count": u[5]
+        })
+    with open("users.json", "w") as f:
+        json.dump(users_list, f, indent=4)
 
 def is_admin(user_id):
     conn, cursor = get_db()
@@ -92,7 +105,7 @@ def check_channels(user_id):
             pass
     return True
 
-# --- START & FORCE SUBSCRIBE ---
+# --- START & PROFESSIONAL USER INTERFACE ---
 @bot.message_handler(commands=['start'])
 def start_handler(message):
     user_id = message.from_user.id
@@ -103,6 +116,7 @@ def start_handler(message):
     cursor.execute("INSERT OR IGNORE INTO users (user_id, username, name) VALUES (?, ?, ?)", (user_id, username, name))
     conn.commit()
     conn.close()
+    update_users_json()
     
     if not check_channels(user_id):
         conn, cursor = get_db()
@@ -114,7 +128,7 @@ def start_handler(message):
         for ch in channels:
             markup.add(types.InlineKeyboardButton("📢 Join Channel", url=ch[0]))
         markup.add(types.InlineKeyboardButton("🔄 Verify Joined", callback_data="verify_join"))
-        bot.send_message(user_id, "⚠️ Please join all our channels to use this bot!", reply_markup=markup)
+        bot.send_message(user_id, "⚠️ **Force Subscription Alert!**\nPlease join all our channels to use this bot.", reply_markup=markup)
         return
     
     send_main_menu(message.chat.id, user_id)
@@ -135,27 +149,27 @@ def send_main_menu(chat_id, user_id):
     b4 = types.KeyboardButton("📦 Purchase History")
     b5 = types.KeyboardButton("🎫 Raffle History")
     b6 = types.KeyboardButton("💰 Wallet")
-    b7 = types.KeyboardButton("🛠️ Developer")
-    b8 = types.KeyboardButton("🌐 Language Change")
-    b9 = types.KeyboardButton("🆘 Help Support")
-    b10 = types.KeyboardButton("🤖 Create Own Bot")
-    b11 = types.KeyboardButton("🏆 Raffle Leaderboard")
+    b7 = types.KeyboardButton("🆘 Help Support")
+    b8 = types.KeyboardButton("🏆 Raffle Leaderboard")
     
     markup.add(b1, b2)
     markup.add(b3)
     markup.add(b4, b5)
     markup.add(b6)
     markup.add(b7, b8)
-    markup.add(b9, b10)
-    markup.add(b11)
     
     if is_admin(user_id):
         markup.add(types.KeyboardButton("👑 Admin Panel"))
         
-    bot.send_message(chat_id, "✨ Welcome to the Main Menu:", reply_markup=markup)
+    welcome_text = (
+        "👋 **Welcome to Digital Store Bot!**\n\n"
+        "✨ Explore free/paid assets, participate in raffles, manage your wallet easily.\n"
+        "👇 Choose an option from the menu below:"
+    )
+    bot.send_message(chat_id, welcome_text, reply_markup=markup)
 
-# --- USER PANELS HANDLERS ---
-@bot.message_handler(func=lambda msg: msg.text in ["🎁 Free Products", "🛍️ Paid Products", "🎟️ Raffle Status", "📦 Purchase History", "🎫 Raffle History", "💰 Wallet", "🛠️ Developer", "🌐 Language Change", "🆘 Help Support", "🤖 Create Own Bot", "🏆 Raffle Leaderboard", "👑 Admin Panel"])
+# --- USER MENU HANDLERS ---
+@bot.message_handler(func=lambda msg: msg.text in ["🎁 Free Products", "🛍️ Paid Products", "🎟️ Raffle Status", "📦 Purchase History", "🎫 Raffle History", "💰 Wallet", "🆘 Help Support", "🏆 Raffle Leaderboard", "👑 Admin Panel"])
 def handle_menu_text(message):
     user_id = message.from_user.id
     text = message.text
@@ -167,13 +181,13 @@ def handle_menu_text(message):
         conn.close()
         
         if not products:
-            bot.send_message(user_id, "No free products available right now.")
+            bot.send_message(user_id, "📭 No free products available right now.")
             return
         
         markup = types.InlineKeyboardMarkup(row_width=1)
         for p in products:
-            markup.add(types.InlineKeyboardButton(p[1], callback_data=f"free_prod_{p[0]}"))
-        bot.send_message(user_id, "🎁 Free Products List:", reply_markup=markup)
+            markup.add(types.InlineKeyboardButton(f"🎁 {p[1]}", callback_data=f"free_prod_{p[0]}"))
+        bot.send_message(user_id, "🎁 **Free Products Collection:**", reply_markup=markup)
         
     elif text == "🛍️ Paid Products":
         conn, cursor = get_db()
@@ -182,19 +196,34 @@ def handle_menu_text(message):
         conn.close()
         
         if not products:
-            bot.send_message(user_id, "No paid products available right now.")
+            bot.send_message(user_id, "📭 No paid products available right now.")
             return
         
         markup = types.InlineKeyboardMarkup(row_width=1)
         for p in products:
-            markup.add(types.InlineKeyboardButton(p[1], callback_data=f"paid_prod_{p[0]}"))
-        bot.send_message(user_id, "🛍️ Paid Products List:", reply_markup=markup)
+            markup.add(types.InlineKeyboardButton(f"🛍️ {p[1]}", callback_data=f"paid_prod_{p[0]}"))
+        bot.send_message(user_id, "🛍️ **Paid Products Collection:**", reply_markup=markup)
 
     elif text == "🎟️ Raffle Status":
+        conn, cursor = get_db()
+        cursor.execute("SELECT COUNT(*), SUM(raffles_count), COUNT(DISTINCT user_id) FROM users")
+        res = cursor.fetchone()
+        total_raffles = res[0] or 0
+        total_earn_coins = res[1] or 0
+        total_users_joined = res[2] or 0
+        
+        cursor.execute("SELECT raffles_count FROM users WHERE user_id = ?", (user_id,))
+        my_raffles = cursor.fetchone()[0]
+        conn.close()
+        
         msg = (
-            "🎟️ **Raffle Information & Status**\n\n"
-            "• Per Raffle Cost: 1 🪙\n"
-            "• Send your Raffle link to participate!"
+            "🎟️ **Advanced Raffle Status & Stats**\n\n"
+            f"🌐 Total Raffles Submitted: {total_raffles}\n"
+            f"🪙 Total Coins Distributed: {total_earn_coins}\n"
+            f"👥 Total Participants: {total_users_joined}\n"
+            f"📌 Your Personal Raffles: {my_raffles}\n"
+            f"💰 Per Raffle Reward: 1 🪙\n\n"
+            "👇 Click below to submit your link!"
         )
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🔗 Submit Raffle Link", callback_data="submit_raffle"))
@@ -202,23 +231,23 @@ def handle_menu_text(message):
 
     elif text == "📦 Purchase History":
         markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(types.InlineKeyboardButton("Free Purchases", callback_data="history_free"),
-                   types.InlineKeyboardButton("Paid Purchases", callback_data="history_paid"))
-        bot.send_message(user_id, "📦 Select Purchase History Type:", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("🎁 Free Purchases", callback_data="history_free"),
+                   types.InlineKeyboardButton("🛍️ Paid Purchases", callback_data="history_paid"))
+        bot.send_message(user_id, "📦 **Select Purchase Category:**", reply_markup=markup)
 
     elif text == "🎫 Raffle History":
         conn, cursor = get_db()
-        cursor.execute("SELECT username, name, link FROM raffles")
+        cursor.execute("SELECT username, name, link FROM raffles ORDER BY id DESC LIMIT 20")
         raffles = cursor.fetchall()
         conn.close()
         
         if not raffles:
-            bot.send_message(user_id, "No raffle history found.")
+            bot.send_message(user_id, "📭 No raffle history found.")
             return
         
-        text_out = "🎫 **Raffle History:**\n\n"
+        text_out = "🎫 **Recent Raffle History:**\n\n"
         for r in raffles:
-            text_out += f"👤 @{r[0]} ({r[1]})\n🔗 {r[2]}\n\n"
+            text_out += f"👤 @{r[0]} ({r[1]})\n🔗 {r[2]}\n-------------------\n"
         bot.send_message(user_id, text_out)
 
     elif text == "💰 Wallet":
@@ -229,22 +258,13 @@ def handle_menu_text(message):
         
         rs, coin = res[0], res[1]
         markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(types.InlineKeyboardButton("➕ Add Rs.", callback_data="add_rs"),
-                   types.InlineKeyboardButton("🎟️ Redeem Code", callback_data="redeem_code"))
+        markup.add(types.InlineKeyboardButton("➕ Add Rs. (Balance)", callback_data="add_rs"),
+                   types.InlineKeyboardButton("🎟️ Redeem Promo Code", callback_data="redeem_code"))
         
-        bot.send_message(user_id, f"💰 **Your Wallet:**\n\nRs. Balance: ₹{rs}\n🪙 Coin Balance: {coin}", reply_markup=markup)
-
-    elif text == "🛠️ Developer":
-        bot.send_message(user_id, "👨‍💻 Developer: @ai_brain_box_2")
-
-    elif text == "🌐 Language Change":
-        bot.send_message(user_id, "🌐 Language change feature is coming soon!")
+        bot.send_message(user_id, f"💰 **Your Secure Wallet:**\n\n💵 Rs. Balance: ₹{rs}\n🪙 Coin Balance: {coin}", reply_markup=markup)
 
     elif text == "🆘 Help Support":
-        bot.send_message(user_id, "🆘 For support, contact admin or developer @ai_brain_box_2")
-
-    elif text == "🤖 Create Own Bot":
-        bot.send_message(user_id, "🤖 Want to create your own bot? Contact developer: @ai_brain_box_2")
+        bot.send_message(user_id, "🆘 Need assistance? Contact our support team or developer for quick help.")
 
     elif text == "🏆 Raffle Leaderboard":
         conn, cursor = get_db()
@@ -255,10 +275,10 @@ def handle_menu_text(message):
         my_count = cursor.fetchone()[0]
         conn.close()
         
-        msg = "🏆 **Raffle Leaderboard**\n\n"
+        msg = "🏆 **Top 10 Raffle Leaderboard**\n\n"
         for i, u in enumerate(top_users, 1):
-            msg += f"{i}. @{u[0]} ({u[1]}) - {u[2]} Raffles\n"
-        msg += f"\n👉 Your Total Raffles: {my_count}"
+            msg += f"{i}. @{u[0]} ({u[1]}) ➔ 🎟️ {u[2]} Raffles\n"
+        msg += f"\n👉 **Your Position Raffles:** {my_count}"
         bot.send_message(user_id, msg)
 
     elif text == "👑 Admin Panel":
@@ -268,14 +288,13 @@ def handle_menu_text(message):
         markup.add(types.InlineKeyboardButton("➕ Add Product", callback_data="adm_add_prod"),
                    types.InlineKeyboardButton("📦 Manage Products", callback_data="adm_manage_prod"))
         markup.add(types.InlineKeyboardButton("📊 Dashboard", callback_data="adm_dashboard"),
-                   types.InlineKeyboardButton("👥 Users", callback_data="adm_users"))
-        markup.add(types.InlineKeyboardButton("💸 Payment Requests", callback_data="adm_payments"),
-                   types.InlineKeyboardButton("📢 Add Channels", callback_data="adm_channels"))
-        markup.add(types.InlineKeyboardButton("➕ Add Admin", callback_data="adm_add_admin"),
-                   types.InlineKeyboardButton("🎁 Send Bonus / Promo", callback_data="adm_promo"))
-        markup.add(types.InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"))
+                   types.InlineKeyboardButton("👥 Users JSON", callback_data="adm_users_json"))
+        markup.add(types.InlineKeyboardButton("📢 Manage Channels", callback_data="adm_channels_manage"),
+                   types.InlineKeyboardButton("➕ Add Admin", callback_data="adm_add_admin"))
+        markup.add(types.InlineKeyboardButton("🎁 Send Bonus", callback_data="adm_promo"),
+                   types.InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"))
         
-        bot.send_message(user_id, "👑 **Admin Panel:**", reply_markup=markup)
+        bot.send_message(user_id, "👑 **Admin Control Panel:**", reply_markup=markup)
 
 # --- PRODUCT PURCHASE FLOW ---
 @bot.callback_query_handler(func=lambda call: call.data.startswith("free_prod_") or call.data.startswith("paid_prod_"))
@@ -295,25 +314,20 @@ def product_details(call):
     
     markup = types.InlineKeyboardMarkup()
     if p_type == "free":
-        markup.add(types.InlineKeyboardButton("🪙 Earn Coin", callback_data=f"earn_coin_{p_id}"))
         markup.add(types.InlineKeyboardButton("🛒 Buy Product", callback_data=f"buy_free_{p_id}"))
     else:
         markup.add(types.InlineKeyboardButton("🛒 Buy Now", callback_data=f"buy_paid_{p_id}"))
         
-    if img and img != "skip":
+    if img:
         bot.send_photo(call.message.chat.id, img, caption=msg, reply_markup=markup)
     else:
         bot.send_message(call.message.chat.id, msg, reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("earn_coin_"))
-def earn_coin_handler(call):
-    bot.answer_callback_query(call.id, "🎟️ Submit your raffle link in Raffle Status to earn coins!", show_alert=True)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_free_") or call.data.startswith("buy_paid_"))
 def buy_product_handler(call):
     user_id = call.from_user.id
     parts = call.data.split("_")
-    p_type = parts[1] # free or paid
+    p_type = parts[1]
     p_id = parts[2]
     
     conn, cursor = get_db()
@@ -328,8 +342,7 @@ def buy_product_handler(call):
             bot.answer_callback_query(call.id, f"❌ Not enough coins! You need {price} 🪙", show_alert=True)
             conn.close()
             return
-        new_coin = coin - price
-        cursor.execute("UPDATE users SET coin_balance = ? WHERE user_id = ?", (new_coin, user_id))
+        cursor.execute("UPDATE users SET coin_balance = coin_balance - ? WHERE user_id = ?", (price, user_id))
     else:
         cursor.execute("SELECT rs_balance FROM users WHERE user_id = ?", (user_id,))
         rs = cursor.fetchone()[0]
@@ -337,16 +350,16 @@ def buy_product_handler(call):
             bot.answer_callback_query(call.id, f"❌ Not enough balance! You need ₹{price}", show_alert=True)
             conn.close()
             return
-        new_rs = rs - price
-        cursor.execute("UPDATE users SET rs_balance = ? WHERE user_id = ?", (new_rs, user_id))
+        cursor.execute("UPDATE users SET rs_balance = rs_balance - ? WHERE user_id = ?", (price, user_id))
         
     cursor.execute("INSERT INTO purchases (user_id, product_id, type) VALUES (?, ?, ?)", (user_id, p_id, p_type))
     conn.commit()
     conn.close()
+    update_users_json()
     
     msg = f"✅ **Purchase Successful!**\n\n📂 File: {file_link}"
     markup = types.InlineKeyboardMarkup()
-    if tutorial and tutorial != "skip":
+    if tutorial:
         markup.add(types.InlineKeyboardButton("📺 Tutorial Video", url=tutorial))
         
     bot.send_message(user_id, msg, reply_markup=markup)
@@ -354,7 +367,7 @@ def buy_product_handler(call):
 # --- RAFFLE SUBMISSION ---
 @bot.callback_query_handler(func=lambda call: call.data == "submit_raffle")
 def submit_raffle_prompt(call):
-    msg = bot.send_message(call.message.chat.id, "Send your Raffle link now:")
+    msg = bot.send_message(call.message.chat.id, "🔗 Send your Raffle link now:")
     bot.register_next_step_handler(msg, save_raffle_link)
 
 def save_raffle_link(message):
@@ -368,6 +381,7 @@ def save_raffle_link(message):
     cursor.execute("UPDATE users SET coin_balance = coin_balance + 1, raffles_count = raffles_count + 1 WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
+    update_users_json()
     
     bot.send_message(user_id, "✅ Raffle link submitted successfully! You earned +1 🪙")
 
@@ -383,40 +397,38 @@ def show_history(call):
     conn.close()
     
     if not items:
-        bot.send_message(user_id, f"No {p_type} purchase history found.")
+        bot.send_message(user_id, f"📭 No {p_type} purchase history found.")
         return
     
     text = f"📦 **Your {p_type.capitalize()} Purchases:**\n\n"
     for item in items:
-        text += f"📌 {item[0]}\n📂 {item[1]}\n\n"
+        text += f"📌 {item[0]}\n📂 {item[1]}\n-------------------\n"
     bot.send_message(user_id, text)
 
-# --- WALLET & ADD MONEY WITH TIMER ---
+# --- WALLET & ADD MONEY WITH QR & TIMER ---
 @bot.callback_query_handler(func=lambda call: call.data == "add_rs")
 def add_rs_handler(call):
-    msg = bot.send_message(call.message.chat.id, "Enter amount to add (Rs.):")
+    msg = bot.send_message(call.message.chat.id, "💵 Enter amount to add (Rs.):")
     bot.register_next_step_handler(msg, process_payment_amount)
 
 def process_payment_amount(message):
     try:
         amount = float(message.text)
     except:
-        bot.send_message(message.chat.id, "Invalid amount!")
+        bot.send_message(message.chat.id, "❌ Invalid amount!")
         return
     
     user_id = message.from_user.id
     
-    # Send QR code & UPI ID (Placeholder UPI & QR)
     qr_caption = (
         f"💳 **Payment Gateway**\n\n"
         f"Amount: ₹{amount}\n"
-        f"UPI ID: `merchant@upi`\n\n"
+        f"UPI ID: `{UPI_ID}`\n\n"
         f"⚠️ Pay using any UPI app and send the payment screenshot within **10 minutes**!"
     )
     
-    # We send a dummy/text QR representation or prompt for image
     msg = bot.send_message(user_id, qr_caption)
-    bot.send_message(user_id, "📸 Now send the payment screenshot image:")
+    bot.send_message(user_id, "📸 Now send the payment screenshot image (Required):")
     bot.register_next_step_handler(msg, lambda m: receive_payment_screenshot(m, amount))
 
 def receive_payment_screenshot(message, amount):
@@ -434,15 +446,17 @@ def receive_payment_screenshot(message, amount):
     conn.commit()
     conn.close()
     
-    bot.send_message(user_id, "⏳ Payment request submitted! Status: Pending. Admin will check it soon.")
+    bot.send_message(user_id, "⏳ Payment request submitted! Status: Pending. Admin will review soon.")
     
-    # Send to Admin
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("✅ Approve", callback_data=f"pay_app_{payment_id}"),
                types.InlineKeyboardButton("❌ Reject", callback_data=f"pay_rej_{payment_id}"))
     
-    admin_msg = f"💸 **New Payment Request!**\n\nUser ID: {user_id}\nAmount: ₹{amount}"
-    bot.send_photo(ADMIN_ID, file_id, caption=admin_msg, reply_markup=markup)
+    channel_msg = f"💸 **New Payment Request!**\n\n👤 User ID: `{user_id}`\n💵 Amount: ₹{amount}\n📊 Status: Pending ⏳"
+    try:
+        bot.send_photo(PAYMENT_CHANNEL_ID, file_id, caption=channel_msg, reply_markup=markup)
+    except Exception as e:
+        bot.send_photo(ADMIN_ID, file_id, caption=channel_msg, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("pay_app_") or call.data.startswith("pay_rej_"))
 def handle_payment_action(call):
@@ -468,19 +482,20 @@ def handle_payment_action(call):
         cursor.execute("UPDATE payments SET status = 'approved' WHERE id = ?", (pay_id,))
         conn.commit()
         bot.send_message(user_id, f"✅ Your payment of ₹{amount} has been approved and added to your wallet!")
-        bot.edit_message_caption(caption=call.message.caption + "\n\nSTATUS: APPROVED", chat_id=call.message.chat.id, message_id=call.message.message_id)
+        bot.edit_message_caption(caption=call.message.caption + "\n\nSTATUS: ✅ APPROVED", chat_id=call.message.chat.id, message_id=call.message.message_id)
     else:
         cursor.execute("UPDATE payments SET status = 'rejected' WHERE id = ?", (pay_id,))
         conn.commit()
         bot.send_message(user_id, f"❌ Your payment of ₹{amount} was rejected.")
-        bot.edit_message_caption(caption=call.message.caption + "\n\nSTATUS: REJECTED", chat_id=call.message.chat.id, message_id=call.message.message_id)
+        bot.edit_message_caption(caption=call.message.caption + "\n\nSTATUS: ❌ REJECTED", chat_id=call.message.chat.id, message_id=call.message.message_id)
     conn.close()
+    update_users_json()
     bot.answer_callback_query(call.id, "Done!")
 
 # --- REDEEM CODE ---
 @bot.callback_query_handler(func=lambda call: call.data == "redeem_code")
 def redeem_prompt(call):
-    msg = bot.send_message(call.message.chat.id, "Enter Promo Code:")
+    msg = bot.send_message(call.message.chat.id, "🎟️ Enter Promo Code:")
     bot.register_next_step_handler(msg, process_redeem)
 
 def process_redeem(message):
@@ -510,11 +525,11 @@ def process_redeem(message):
     cursor.execute("UPDATE codes SET used_count = used_count + 1 WHERE code = ?", (code,))
     conn.commit()
     conn.close()
+    update_users_json()
     
     bot.send_message(user_id, f"✅ Successfully redeemed! Added {amount} {c_type.upper()}")
 
 # --- ADMIN PANEL FEATURES ---
-# Product Addition Wizard State (Simple multi-step via temp dict)
 admin_temp_data = {}
 
 @bot.callback_query_handler(func=lambda call: call.data == "adm_add_prod")
@@ -539,37 +554,32 @@ def adm_get_title(message):
 
 def adm_get_desc(message):
     admin_temp_data[message.from_user.id]["desc"] = message.text
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Skip Image", callback_data="skip_image"))
-    msg = bot.send_message(message.chat.id, "Upload Image or click Skip:", reply_markup=markup)
+    msg = bot.send_message(message.chat.id, "📷 Send Product Image (Required):")
     bot.register_next_step_handler(msg, adm_get_image)
 
 def adm_get_image(message):
-    if message.photo:
-        admin_temp_data[message.from_user.id]["image"] = message.photo[-1].file_id
-    else:
-        admin_temp_data[message.from_user.id]["image"] = "skip"
-    
-    msg = bot.send_message(message.chat.id, "Upload File or send file link:")
+    if not message.photo:
+        bot.send_message(message.chat.id, "❌ Please send an image!")
+        return
+    admin_temp_data[message.from_user.id]["image"] = message.photo[-1].file_id
+    msg = bot.send_message(message.chat.id, "📂 Send File link:")
     bot.register_next_step_handler(msg, adm_get_file)
 
 def adm_get_file(message):
     admin_temp_data[message.from_user.id]["file"] = message.text
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Skip Tutorial", callback_data="skip_tutorial"))
-    msg = bot.send_message(message.chat.id, "Enter Tutorial Link or Skip:", reply_markup=markup)
+    msg = bot.send_message(message.chat.id, "📺 Send Tutorial Link (Required):")
     bot.register_next_step_handler(msg, adm_get_tutorial)
 
 def adm_get_tutorial(message):
     admin_temp_data[message.from_user.id]["tutorial"] = message.text
-    msg = bot.send_message(message.chat.id, "Enter Price (Number only):")
+    msg = bot.send_message(message.chat.id, "💰 Enter Price (Number only):")
     bot.register_next_step_handler(msg, adm_get_price)
 
 def adm_get_price(message):
     try:
         price = float(message.text)
     except:
-        bot.send_message(message.chat.id, "Invalid price!")
+        bot.send_message(message.chat.id, "❌ Invalid price!")
         return
     
     data = admin_temp_data[message.from_user.id]
@@ -580,9 +590,20 @@ def adm_get_price(message):
     conn.commit()
     conn.close()
     
-    bot.send_message(message.chat.id, "✅ Product Added Successfully!")
+    bot.send_message(message.chat.id, "✅ Product Added Successfully! Broadcasting to users...")
+    
+    conn, cursor = get_db()
+    cursor.execute("SELECT user_id FROM users")
+    users = cursor.fetchall()
+    conn.close()
+    
+    notif_text = f"🚨 **New Product Added!**\n\n📌 Title: {data['title']}\n💰 Price: {price}\n\nCheck it out in the menu!"
+    for u in users:
+        try:
+            bot.send_message(u[0], notif_text)
+        except:
+            pass
 
-# Dashboard & Users
 @bot.callback_query_handler(func=lambda call: call.data == "adm_dashboard")
 def adm_dashboard(call):
     if not is_admin(call.from_user.id): return
@@ -593,22 +614,32 @@ def adm_dashboard(call):
     total_purchases = cursor.fetchone()[0]
     conn.close()
     
-    bot.send_message(call.message.chat.id, f"📊 **Dashboard:**\n\nTotal Users: {total_users}\nTotal Purchases: {total_purchases}")
+    bot.send_message(call.message.chat.id, f"📊 **Dashboard Stats:**\n\nTotal Users: {total_users}\nTotal Purchases: {total_purchases}")
 
-@bot.callback_query_handler(func=lambda call: call.data == "adm_users")
-def adm_users(call):
+@bot.callback_query_handler(func=lambda call: call.data == "adm_users_json")
+def adm_users_json(call):
+    if not is_admin(call.from_user.id): return
+    with open("users.json", "rb") as f:
+        bot.send_document(call.message.chat.id, f, caption="📁 Here is the `users.json` database file.")
+
+@bot.callback_query_handler(func=lambda call: call.data == "adm_channels_manage")
+def adm_channels_manage(call):
     if not is_admin(call.from_user.id): return
     conn, cursor = get_db()
-    cursor.execute("SELECT COUNT(*) FROM users")
-    count = cursor.fetchone()[0]
+    cursor.execute("SELECT id, link FROM channels")
+    channels = cursor.fetchall()
     conn.close()
-    bot.send_message(call.message.chat.id, f"👥 Total Registered Users: {count}")
+    
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(types.InlineKeyboardButton("➕ Add Channel", callback_data="adm_add_channel"))
+    for ch in channels:
+        markup.add(types.InlineKeyboardButton(f"❌ Delete: {ch[1]}", callback_data=f"del_ch_{ch[0]}"))
+    bot.send_message(call.message.chat.id, "📢 **Manage Channels:**", reply_markup=markup)
 
-# Channels Management
-@bot.callback_query_handler(func=lambda call: call.data == "adm_channels")
-def adm_channels(call):
+@bot.callback_query_handler(func=lambda call: call.data == "adm_add_channel")
+def adm_add_channel_prompt(call):
     if not is_admin(call.from_user.id): return
-    msg = bot.send_message(call.message.chat.id, "Enter Channel Link (e.g., https://t.me/yourchannel):")
+    msg = bot.send_message(call.message.chat.id, "Enter Channel Link (e.g., https://t.me/channel):")
     bot.register_next_step_handler(msg, save_channel)
 
 def save_channel(message):
@@ -619,7 +650,17 @@ def save_channel(message):
     conn.close()
     bot.send_message(message.chat.id, "✅ Channel added successfully!")
 
-# Broadcast
+@bot.callback_query_handler(func=lambda call: call.data.startswith("del_ch_"))
+def delete_channel(call):
+    if not is_admin(call.from_user.id): return
+    ch_id = call.data.split("_")[2]
+    conn, cursor = get_db()
+    cursor.execute("DELETE FROM channels WHERE id = ?", (ch_id,))
+    conn.commit()
+    conn.close()
+    bot.answer_callback_query(call.id, "Channel deleted!")
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+
 @bot.callback_query_handler(func=lambda call: call.data == "adm_broadcast")
 def adm_broadcast(call):
     if not is_admin(call.from_user.id): return
@@ -636,18 +677,17 @@ def send_broadcast(message):
     success, error = 0, 0
     for u in users:
         try:
-            bot.send_message(u[0], f"📢 **Announcement:**\n\n{text}")
+            bot.send_message(u[0], f"📢 **Broadcast:**\n\n{text}")
             success += 1
         except:
             error += 1
             
-    bot.send_message(message.chat.id, f"✅ Broadcast Complete!\n\nSent: {success}\nFailed: {error}")
+    bot.send_message(message.chat.id, f"✅ Broadcast Complete!\nSent: {success}\nFailed: {error}")
 
-# Promo Code Generation by Admin
 @bot.callback_query_handler(func=lambda call: call.data == "adm_promo")
 def adm_promo(call):
     if not is_admin(call.from_user.id): return
-    msg = bot.send_message(call.message.chat.id, "Enter Promo Code details in format:\n`CODE TYPE(rs/coin) AMOUNT LIMIT`\n\nExample: `FREE100 rs 50 100`")
+    msg = bot.send_message(call.message.chat.id, "Enter Promo Code format:\n`CODE TYPE(rs/coin) AMOUNT LIMIT`\n\nExample: `BONUS50 rs 50 100`")
     bot.register_next_step_handler(msg, save_promo_code)
 
 def save_promo_code(message):
@@ -660,10 +700,9 @@ def save_promo_code(message):
         conn.commit()
         conn.close()
         bot.send_message(message.chat.id, "✅ Promo Code Created Successfully!")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Error: Invalid format.")
+    except:
+        bot.send_message(message.chat.id, "❌ Error: Invalid format.")
 
-# Add Admin
 @bot.callback_query_handler(func=lambda call: call.data == "adm_add_admin")
 def adm_add_admin(call):
     if not is_admin(call.from_user.id): return
@@ -677,11 +716,38 @@ def save_admin(message):
         cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (new_admin,))
         conn.commit()
         conn.close()
-        bot.send_message(message.chat.id, f"✅ User {new_admin} is now an Admin!")
+        bot.send_message(message.chat.id, f"✅ User {new_admin} is now an Admin! They will see the Admin Panel.")
     except:
         bot.send_message(message.chat.id, "❌ Invalid User ID!")
 
-# --- BOT POLLING ---
+@bot.callback_query_handler(func=lambda call: call.data == "adm_manage_prod")
+def adm_manage_products(call):
+    if not is_admin(call.from_user.id): return
+    conn, cursor = get_db()
+    cursor.execute("SELECT id, title FROM products")
+    products = cursor.fetchall()
+    conn.close()
+    
+    if not products:
+        bot.answer_callback_query(call.id, "No products to manage.")
+        return
+    
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for p in products:
+        markup.add(types.InlineKeyboardButton(f"🗑️ Delete: {p[1]}", callback_data=f"del_prod_{p[0]}"))
+    bot.send_message(call.message.chat.id, "📦 **Manage Products:**", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("del_prod_"))
+def delete_product(call):
+    if not is_admin(call.from_user.id): return
+    p_id = call.data.split("_")[2]
+    conn, cursor = get_db()
+    cursor.execute("DELETE FROM products WHERE id = ?", (p_id,))
+    conn.commit()
+    conn.close()
+    bot.answer_callback_query(call.id, "Product deleted successfully!")
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+
 if __name__ == "__main__":
-    print("Bot is running...")
+    print("Advanced Bot is running smoothly...")
     bot.infinity_polling()
